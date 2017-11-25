@@ -6,6 +6,7 @@ import re
 print("Loading Word2Vec")
 w2v = Word2Vec.load("/Users/frank/PycharmProjects/study-tool-back/trained/w2v/trained.w2v")
 
+
 with open("data/text.txt") as f:
     data = " ".join(f.readlines())
 words = re.sub("[^A-Za-z]", "", data).split()
@@ -69,7 +70,9 @@ train = tf.train.AdamOptimizer(tf.reduce_sum(loss))
 
 init = tf.global_variables_initializer()
 
+
 with tf.Session as sess:
     sess.run(init)
     for i in epochs:
         sess.run(train, feed_dict={x: train_x, y: train_y})
+
