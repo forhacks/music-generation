@@ -37,13 +37,13 @@ for l in range(num_layers):
 cell = rnn.MultiRNNCell(layers)
 
 x = tf.unstack(x, seq_len, 1)
-output, current_state = rnn.static_rnn(cell, x, dtype=tf.float32)
-outputs = tf.transpose(output, [1, 0, 2])
+outputs, current_state = rnn.static_rnn(cell, x, dtype=tf.float32)
+outputs = tf.transpose(outputs, [1, 0, 2])
 
 w = tf.Variable(tf.truncated_normal([hidden_size, out_size], stddev=0.01))
 b = tf.Variable(tf.truncated_normal([out_size], stddev=0.01))
 
-out = [tf.matmul(output, w) + b for output in outputs]
+out = tf.multiply(outputs, w)
 loss = tf.reduce_sum(tf.losses.softmax_cross_entropy(y, out))
 
 train = tf.train.AdagradOptimizer(0.3).minimize(loss)
