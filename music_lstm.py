@@ -1,16 +1,20 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
 import numpy as np
+import math
+from collections import deque
+
 event_len = 40
 pitch_num = 120
-data_size = pitch_num * 2 + 1
-hidden_size = 500
-epochs = 1000
-num_layers = 3
-batch_size = 30
+tick_num = 12
+data_size = pitch_num * 2 + tick_num
+hidden_size = 300
+epochs = 20000
+num_layers = 2
+batch_size = 16
 
 print("Making Graph")
-x = tf.placeholder("float", [None, event_len - 1, data_size])
+x = tf.placeholder("float", [None, event_len, data_size])
 y = tf.placeholder("float", [None, data_size])
 
 layers = []
@@ -19,7 +23,7 @@ for l in range(num_layers):
 cell = rnn.MultiRNNCell(layers)
 
 print("Feeding Inputs Into LSTM Layers")
-timesteps = tf.unstack(x, event_len - 1, 1)
+timesteps = tf.unstack(x, event_len, 1)
 lstm_outputs, states = rnn.static_rnn(cell, timesteps, dtype=tf.float32)
 
 w = tf.Variable(tf.truncated_normal([hidden_size, data_size], stddev=0.1))
@@ -27,44 +31,76 @@ b = tf.Variable(tf.truncated_normal([data_size], stddev=0.1))
 
 print("Feeding Values Into Final Layer")
 out = tf.matmul(lstm_outputs[-1], w) + b
-loss = tf.reduce_sum(tf.losses.softmax_cross_entropy(y, out))
+loss = tf.reduce_sum(tf.losses.sigmoid_cross_entropy(y, out))
 
 print('Computing Gradients')
-train = tf.train.AdagradOptimizer(0.001).minimize(loss)
+train = tf.train.AdagradOptimizer(0.005).minimize(loss)
 init = tf.global_variables_initializer()
+
+saver = tf.train.Saver()
+
+
+def is_power_2(num):
+    num = int(num)
+    return num != 0 and (num & (num - 1)) == 0
 
 
 def to_roll_matrix(data):
     inputs = []
     outputs = []
     for track in data:
-        t = np.zeros((event_len, data_size))
-        index = 0
+        fail = False
+        t = []
         for event in track.split():
+            arr = [0 for _ in range(data_size)]
             vals = event.split(";")
             tick = int(vals[0])
-            t[index][-1] = tick
+            if tick % 3 != 0 or not is_power_2(tick / 3):
+                fail = True
+                break
+            tick = int(math.log((tick / 3), 2))
+            arr[-(tick_num - tick)] = 1
             if not vals[1] == '':
                 on = list(map(int, vals[1].split(",")))
                 for pitch in on:
-                    t[index][pitch] = 1
+                    arr[pitch] = 1
             if not vals[2] == '':
                 off = list(map(int, vals[2].split(",")))
                 for pitch in off:
-                    t[index][pitch + pitch_num] = 1
-            index += 1
-        inputs.append(t[:-1])
-        outputs.append(t[-1])
+                    arr[pitch + pitch_num] = 1
+            t.append(arr)
+        if not fail:
+            values = list(window(t))
+            inputs.extend(values[:-1])
+            outputs.extend(t[event_len:])
     return inputs, outputs
 
-with open("data/tracks.txt") as f:
-# with open("/data/tracks.txt") as f:
+
+def window(seq, n=event_len, samples=999999999999):
+    it = iter(seq)
+    win = deque((next(it, None) for _ in range(n)), maxlen=n)
+    yield list(win)
+    append = win.append
+    i = 0
+    for e in it:
+        if i == samples:
+            break
+        i += 1
+        append(e)
+        yield list(win)
+
+
+# with open("data/tracks.txt") as f:
+with open("/data/tracks.txt") as f:
     data = f.readlines()
 print("Processing Data")
 train_x, train_y = to_roll_matrix(data)
-print(train_y[0])
+# print(train_y[0])
+# print(train_x[1][-1])
+print(len(train_y))
 
 print("Training")
+minimum = 99999
 with tf.Session() as sess:
     sess.run(init)
     for j in range(epochs):
@@ -72,7 +108,10 @@ with tf.Session() as sess:
         train_dict = {x: train_x[batch_num * batch_size:(batch_num + 1) * batch_size],
                       y: train_y[batch_num * batch_size:(batch_num + 1) * batch_size]}
         sess.run(train, feed_dict=train_dict)
-        loss = sess.run(loss, feed_dict=train_dict)
-        print(loss)
-        output = sess.run(tf.nn.softmax(out, dim=2), feed_dict=train_dict)
-        print(output[0])
+        curr_loss = sess.run(loss, feed_dict=train_dict)
+        print("Loss: " + str(curr_loss))
+        print("Epoch: " + str(j))
+        if loss < minimum:
+            minimum = loss
+            # save_path = saver.save(sess, "/trained/model.ckpt")
+            save_path = saver.save(sess, "/output/model.ckpt")
