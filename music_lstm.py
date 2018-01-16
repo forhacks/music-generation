@@ -3,6 +3,7 @@ from tensorflow.contrib import rnn
 import numpy as np
 import math
 from collections import deque
+import time
 
 event_len = 40
 pitch_num = 120
@@ -12,6 +13,7 @@ hidden_size = 300
 epochs = 20000
 num_layers = 2
 batch_size = 16
+start = time.time()
 
 print("Making Graph")
 x = tf.placeholder("float", [None, event_len, data_size])
@@ -34,7 +36,7 @@ out = tf.matmul(lstm_outputs[-1], w) + b
 loss = tf.reduce_sum(tf.losses.sigmoid_cross_entropy(y, out))
 
 print('Computing Gradients')
-train = tf.train.AdagradOptimizer(0.005).minimize(loss)
+train = tf.train.AdamOptimizer(0.0001).minimize(loss)
 init = tf.global_variables_initializer()
 
 saver = tf.train.Saver()
@@ -42,7 +44,7 @@ saver = tf.train.Saver()
 
 def is_power_2(num):
     num = int(num)
-    return num != 0 and (num & (num - 1)) == 0
+    return (num & (num - 1)) == 0
 
 
 def to_roll_matrix(data):
@@ -58,7 +60,7 @@ def to_roll_matrix(data):
             if tick % 3 != 0 or not is_power_2(tick / 3):
                 fail = True
                 break
-            tick = int(math.log((tick / 3), 2))
+            tick = int(math.log((tick / 3), 2)) if tick != 0 else 0
             arr[-(tick_num - tick)] = 1
             if not vals[1] == '':
                 on = list(map(int, vals[1].split(",")))
@@ -111,7 +113,8 @@ with tf.Session() as sess:
         curr_loss = sess.run(loss, feed_dict=train_dict)
         print("Loss: " + str(curr_loss))
         print("Epoch: " + str(j))
-        if loss < minimum:
-            minimum = loss
-            # save_path = saver.save(sess, "/trained/model.ckpt")
-            save_path = saver.save(sess, "/output/model.ckpt")
+        print(sess.run(tf.nn.sigmoid()))
+        if curr_loss < minimum and time.time() - start > 120:
+            minimum = curr_loss
+            # save_path = saver.save(sess, "trained/model.ckpt", global_step=j)
+            save_path = saver.save(sess, "/output/model.ckpt", global_step=j)
